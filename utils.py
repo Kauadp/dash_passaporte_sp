@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import pandas as pd
 
+from labels import rotular_opcao, rotular_pergunta
+
 # ordem da jornada — cada nome bate com a chave usada em database.TABELAS
 ETAPAS_JORNADA = [
     "boas_vindas",
@@ -107,9 +109,22 @@ def get_heatmap_horarios(data: dict[str, pd.DataFrame]) -> pd.DataFrame:
     frames = [data[etapa][["created_at"]] for etapa in ETAPAS_JORNADA if not data[etapa].empty]
     if not frames:
         return pd.DataFrame(columns=["dia_semana", "hora", "respostas"])
+
+    dias_map = {
+        "Monday": "Segunda",
+        "Tuesday": "Terça",
+        "Wednesday": "Quarta",
+        "Thursday": "Quinta",
+        "Friday": "Sexta",
+        "Saturday": "Sábado",
+        "Sunday": "Domingo",
+    }
+    dias_ordem = list(dias_map.values())
+
     todas = pd.concat(frames, ignore_index=True)
     todas["created_at"] = pd.to_datetime(todas["created_at"])
-    todas["dia_semana"] = todas["created_at"].dt.day_name()
+    todas["dia_semana"] = todas["created_at"].dt.day_name().map(dias_map)
+    todas["dia_semana"] = pd.Categorical(todas["dia_semana"], categories=dias_ordem, ordered=True)
     todas["hora"] = todas["created_at"].dt.hour
     return todas.groupby(["dia_semana", "hora"]).size().reset_index(name="respostas")
 
@@ -139,6 +154,22 @@ def get_resultados_formulario(data: dict[str, pd.DataFrame], tipo_formulario: st
     if df is None or df.empty or not perguntas:
         return pd.DataFrame(columns=["pergunta", "resposta", "pct"])
     melted = df[perguntas].melt(var_name="pergunta", value_name="resposta")
+    melted["resposta"] = melted.apply(lambda r: rotular_opcao(r["pergunta"], r["resposta"]), axis=1)
+    melted["pergunta"] = melted["pergunta"].map(rotular_pergunta)
     contagem = melted.groupby(["pergunta", "resposta"]).size().reset_index(name="n")
     contagem["pct"] = contagem["n"] / contagem.groupby("pergunta")["n"].transform("sum")
     return contagem
+
+
+def get_ranking_marcas_citadas(data: dict[str, pd.DataFrame], top_n: int = 15) -> pd.DataFrame:
+    """Ranking de marcas mais citadas na resposta livre 'qual_marca_deixou_louco'
+    (Cenografia) — é a métrica de Brand Equity/marca âncora que o marketing
+    usa pra priorizar negociação com expositores."""
+    df = data.get("cenografia")
+    if df is None or df.empty or "qual_marca_deixou_louco" not in df:
+        return pd.DataFrame(columns=["marca", "mencoes"])
+    marcas = df["qual_marca_deixou_louco"].dropna().str.strip().str.title()
+    marcas = marcas[marcas != ""]
+    if marcas.empty:
+        return pd.DataFrame(columns=["marca", "mencoes"])
+    return marcas.value_counts().head(top_n).reset_index().set_axis(["marca", "mencoes"], axis=1)

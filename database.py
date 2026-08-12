@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pandas as pd
 import streamlit as st
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect
 from sqlalchemy.engine import Engine
 
 # chave usada no dashboard -> nome real da tabela no Supabase
@@ -28,6 +28,23 @@ TABELAS = {
     "dentro_lojas": "interacoes_dentro_lojas",
     "saida_juquita": "interacoes_saida_juquita",
     "saida_nps": "interacoes_saida_nps",
+}
+
+COLUNAS_REQUERIDAS = {
+    "users": ["visitante_id", "pontos_atuais"],
+    "lojas": ["id", "nome"],
+    "pontuacoes": ["visitante_id", "loja_id", "pontos"],
+    "brindes": ["id", "nome"],
+    "resgates": ["brinde_id"],
+    "boas_vindas": ["visitante_id", "created_at", "quem_eh_voce", "qual_foco", "regiao"],
+    "entrada_juquita": ["visitante_id", "created_at", "item_ritmo", "faixa_etaria", "ficou_sabendo_onde"],
+    "acao_guerrilha": ["visitante_id", "created_at", "oque_trouxe", "regiao"],
+    "lounge_vip": ["visitante_id", "created_at", "prioridade", "quantas_sacolas"],
+    "estacionamento": ["visitante_id", "created_at", "como_veio", "quanto_tempo"],
+    "cenografia": ["visitante_id", "created_at", "oque_mais_garimpou", "qual_marca_deixou_louco"],
+    "dentro_lojas": ["visitante_id", "created_at", "melhor_dia", "forma_pagamento"],
+    "saida_juquita": ["visitante_id", "created_at", "qual_renda", "quanto_pretende_gastar", "com_quem_veio"],
+    "saida_nps": ["visitante_id", "created_at", "quanto_recomenda", "maior_destaque", "te_vejo_proxima_edicao"],
 }
 
 
@@ -66,9 +83,16 @@ class DataBaseManager:
     def _carregar_tabelas(_engine: Engine) -> dict[str, pd.DataFrame]:
         # _engine com underscore: instrui o st.cache_data a não tentar
         # hashear o objeto engine, só o restante dos argumentos (nenhum aqui)
-        dados = {}
+        dados: dict[str, pd.DataFrame] = {}
         for chave, tabela in TABELAS.items():
-            dados[chave] = pd.read_sql_table(tabela, _engine)
+            colunas_requeridas = COLUNAS_REQUERIDAS.get(chave, [])
+            colunas_disponiveis = {col["name"] for col in inspect(_engine).get_columns(tabela)}
+            colunas = [col for col in colunas_requeridas if col in colunas_disponiveis]
+
+            if not colunas:
+                dados[chave] = pd.read_sql_table(tabela, _engine)
+            else:
+                dados[chave] = pd.read_sql_table(tabela, _engine, columns=colunas)
         return dados
 
 

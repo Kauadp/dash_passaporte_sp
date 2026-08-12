@@ -4,6 +4,7 @@ import streamlit as st
 
 import utils
 from database import db
+from labels import rotular_etapa
 from theme import CHART_SEQUENCE, PALETTE, PLOTLY_LAYOUT, inject_css, kpi_card, render_footer_accent, render_header
 
 st.set_page_config(
@@ -81,13 +82,39 @@ with tab_comportamento:
     st.markdown("##### Respostas por dia da semana e horário")
     heatmap_df = utils.get_heatmap_horarios(data)
     if not heatmap_df.empty:
-        pivot = heatmap_df.pivot(index="dia_semana", columns="hora", values="respostas").fillna(0)
+        dias_ordem = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
+        pivot = (
+            heatmap_df.pivot_table(
+                index="dia_semana",
+                columns="hora",
+                values="respostas",
+                aggfunc="sum",
+                fill_value=0,
+            )
+            .reindex(index=dias_ordem, columns=range(0, 24), fill_value=0)
+        )
+
         fig = px.imshow(
             pivot,
             color_continuous_scale=[PALETTE["off_white"], PALETTE["coral"], PALETTE["purple"]],
             aspect="auto",
+            labels=dict(x="Horário", y="Dia da semana", color="Respostas"),
+            origin="lower",
         )
-        fig.update_layout(**PLOTLY_LAYOUT, height=380)
+
+        tickvals = list(range(0, 24, 2))
+        fig.update_xaxes(
+            tickmode="array",
+            tickvals=tickvals,
+            ticktext=[f"{h:02d}:00" for h in tickvals],
+            title_text="Horário",
+        )
+        fig.update_yaxes(title_text="Dia da semana")
+        layout = dict(PLOTLY_LAYOUT)
+        layout["height"] = 380
+        layout["coloraxis_colorbar"] = dict(title="respostas")
+        layout["margin"] = dict(l=10, r=10, t=10, b=10)
+        fig.update_layout(**layout)
         st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("Sem respostas registradas ainda.")
@@ -122,7 +149,9 @@ with tab_lojas:
 # ---------------------------------------------------------------------------
 with tab_formularios:
     st.markdown("##### Resultado por formulário")
-    formulario_escolhido = st.selectbox("Formulário", utils.ETAPAS_JORNADA)
+    formulario_escolhido = st.selectbox(
+        "Formulário", utils.ETAPAS_JORNADA, format_func=rotular_etapa
+    )
     resultados_df = utils.get_resultados_formulario(data, formulario_escolhido)
     if not resultados_df.empty:
         fig = px.bar(
@@ -138,5 +167,19 @@ with tab_formularios:
         st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("Esse formulário ainda não tem respostas com pergunta/resposta estruturadas.")
+
+    if formulario_escolhido == "cenografia":
+        st.markdown("##### Marcas mais citadas (resposta livre)")
+        marcas_df = utils.get_ranking_marcas_citadas(data)
+        if not marcas_df.empty:
+            fig = px.bar(
+                marcas_df, x="mencoes", y="marca", orientation="h",
+                color_discrete_sequence=[PALETTE["pink"]],
+            )
+            fig.update_layout(**PLOTLY_LAYOUT, height=380)
+            fig.update_yaxes(autorange="reversed")
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Sem menções de marca registradas ainda.")
 
     render_footer_accent()
